@@ -38,6 +38,22 @@ final class GuitarEngine: ObservableObject {
     @Published var chorusMix: Double = GuitarEngine.load("chorusMix", 0.0) {
         didSet { save("chorusMix", chorusMix); applyParameters() }
     }
+    @Published var delayMix: Double = GuitarEngine.load("delayMix", 0.0) {
+        didSet { save("delayMix", delayMix); applyParameters() }
+    }
+    @Published var delayFeedback: Double = GuitarEngine.load("delayFeedback", 0.35) {
+        didSet { save("delayFeedback", delayFeedback); applyParameters() }
+    }
+    @Published var bpm: Double = GuitarEngine.load("bpm", 120.0) {
+        didSet {
+            let clamped = min(max(bpm, DelayLimits.bpmRange.lowerBound), DelayLimits.bpmRange.upperBound)
+            if clamped != bpm { bpm = clamped; return }
+            save("bpm", bpm); applyParameters()
+        }
+    }
+    @Published var division: DelayDivision = DelayDivision(rawValue: GuitarEngine.load("delayDivision", DelayDivision.dottedEighth.rawValue)) ?? .dottedEighth {
+        didSet { UserDefaults.standard.set(division.rawValue, forKey: "delayDivision"); applyParameters() }
+    }
     @Published var reverbMix: Double = GuitarEngine.load("reverbMix", 0.0) {
         didSet { save("reverbMix", reverbMix); applyParameters() }
     }
@@ -66,6 +82,7 @@ final class GuitarEngine: ObservableObject {
     private var distortion = AVAudioUnitDistortion()
     private var compressor = CompressorAU.makeNode()
     private var chorus = ChorusAU.makeNode()
+    private var delay = AVAudioUnitDelay()
     private var reverb = AVAudioUnitReverb()
     private var eq = AVAudioUnitEQ(numberOfBands: 3)
     private var tapInstalled = false
@@ -84,6 +101,21 @@ final class GuitarEngine: ObservableObject {
 
     deinit {
         if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
+    }
+
+    // MARK: Tap tempo
+
+    private var tapTimes: [Date] = []
+
+    /// Averages the last few taps into a BPM. A pause over two seconds starts a fresh count.
+    func tapTempo() {
+        let now = Date()
+        if let last = tapTimes.last, now.timeIntervalSince(last) > 2 { tapTimes.removeAll() }
+        tapTimes.append(now)
+        tapTimes = Array(tapTimes.suffix(5))
+        guard tapTimes.count >= 2 else { return }
+        let intervals = zip(tapTimes.dropFirst(), tapTimes).map { $0.timeIntervalSince($1) }
+        bpm = (60 / (intervals.reduce(0, +) / Double(intervals.count))).rounded()
     }
 
     // MARK: Start / stop
@@ -149,6 +181,7 @@ final class GuitarEngine: ObservableObject {
         distortion = AVAudioUnitDistortion()
         compressor = CompressorAU.makeNode()
         chorus = ChorusAU.makeNode()
+        delay = AVAudioUnitDelay()
         reverb = AVAudioUnitReverb()
         eq = AVAudioUnitEQ(numberOfBands: 3)
 
@@ -179,14 +212,15 @@ final class GuitarEngine: ObservableObject {
 
         configureEffects()
 
-        [sumMixer, spreadMixer, compressor, distortion, eq, chorus, reverb].forEach { engine.attach($0) }
+        [sumMixer, spreadMixer, compressor, distortion, eq, chorus, delay, reverb].forEach { engine.attach($0) }
         engine.connect(engine.inputNode, to: sumMixer, format: inFormat)
         engine.connect(sumMixer, to: spreadMixer, format: mono)
         engine.connect(spreadMixer, to: compressor, format: stereo)
         engine.connect(compressor, to: distortion, format: stereo)
         engine.connect(distortion, to: eq, format: stereo)
         engine.connect(eq, to: chorus, format: stereo)
-        engine.connect(chorus, to: reverb, format: stereo)
+        engine.connect(chorus, to: delay, format: stereo)
+        engine.connect(delay, to: reverb, format: stereo)
         engine.connect(reverb, to: engine.mainMixerNode, format: stereo)
         applyParameters()
 
@@ -218,7 +252,7 @@ final class GuitarEngine: ObservableObject {
         }
         isRunning = true
         actualBufferFrames = Self.bufferFrames(inputID)
-        let effectsMs = ([compressor, reverb, distortion, eq] as [AVAudioUnit])
+        let effectsMs = ([compressor, reverb, distortion, eq, delay] as [AVAudioUnit])
             .filter { !$0.auAudioUnit.shouldBypassEffect }
             .reduce(0.0) { $0 + $1.latency * 1000 }
         latencyMs = Self.roundTripLatencyMs(input: inputID, output: outputID, sampleRate: sr) + effectsMs
@@ -252,6 +286,14 @@ final class GuitarEngine: ObservableObject {
 
         chorus.bypass = chorusMix < 0.01
         (chorus.auAudioUnit as? ChorusAU)?.amount = Float(chorusMix)
+
+        // Tempo-synced delay: time comes from BPM x note division. Repeats are rolled
+        // off a little (like a warm tape echo) so they sit behind the live signal.
+        delay.bypass = delayMix < 0.01
+        delay.delayTime = min(division.seconds(bpm: bpm), DelayLimits.maxSeconds)
+        delay.feedback = Float(delayFeedback * 85)
+        delay.lowPassCutoff = 5000
+        delay.wetDryMix = Float(delayMix * 70)
 
         reverb.bypass = reverbMix < 0.01
         reverb.wetDryMix = Float(reverbMix * 60)

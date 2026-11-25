@@ -25,7 +25,7 @@ struct GuitarMonitorApp: App {
             ContentView()
                 .environmentObject(engine)
                 .environmentObject(quips)
-                .frame(width: 820, height: 490)
+                .frame(width: 820, height: 640)
                 .preferredColorScheme(.light)
                 .tint(Butter.deepGold)
         }
@@ -53,10 +53,11 @@ struct ContentView: View {
                 Knob(title: "Melt", subtitle: "Reverb", value: $engine.reverbMix, range: 0...1, defaultValue: 0) { "\(Int($0 * 100))%" }
                 Knob(title: "Slather", subtitle: "Volume", value: $engine.volume, range: 0...1, defaultValue: 0.7) { "\(Int($0 * 100))%" }
             }
+            delayPanel
             Text(quips.line)
                 .font(.system(.callout, design: .rounded).italic())
                 .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity, minHeight: 56)
+                .frame(maxWidth: .infinity, minHeight: 40)
                 .padding(.horizontal, 16)
                 .background(RoundedRectangle(cornerRadius: 14).fill(Butter.toast.opacity(0.10)))
                 .animation(.easeInOut(duration: 0.2), value: quips.line)
@@ -66,6 +67,53 @@ struct ContentView: View {
         .padding(24)
         .foregroundStyle(Butter.toast)
         .background(Butter.background.ignoresSafeArea())
+    }
+
+    private var delayPanel: some View {
+        let seconds = engine.division.seconds(bpm: engine.bpm)
+        let capped = seconds > DelayLimits.maxSeconds
+        return HStack(spacing: 18) {
+            Knob(title: "Drizzle", subtitle: "Delay", value: $engine.delayMix, range: 0...1, defaultValue: 0) { "\(Int($0 * 100))%" }
+                .frame(width: 100)
+            Knob(title: "Layers", subtitle: "Feedback", value: $engine.delayFeedback, range: 0...1, defaultValue: 0.35) { "\(Int($0 * 100))%" }
+                .frame(width: 100)
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    Text("Note").foregroundStyle(Butter.toastSoft).frame(width: 48, alignment: .leading)
+                    Picker("Delay note length", selection: $engine.division) {
+                        ForEach(DelayDivision.allCases) { Text($0.label).tag($0) }
+                    }
+                    .labelsHidden()
+                    .frame(width: 150)
+                }
+                HStack(spacing: 10) {
+                    Text("Tempo").foregroundStyle(Butter.toastSoft).frame(width: 48, alignment: .leading)
+                    TextField("BPM", value: $engine.bpm, format: .number.precision(.fractionLength(0...1)))
+                        .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 64)
+                        .accessibilityLabel("Tempo in beats per minute")
+                    Stepper("", value: $engine.bpm, in: DelayLimits.bpmRange, step: 1)
+                        .labelsHidden()
+                    Text("BPM").foregroundStyle(Butter.toastSoft)
+                    Button("Tap") { engine.tapTempo() }
+                        .fixedSize()
+                        .help("Tap along to set the tempo")
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("\(Int((min(seconds, DelayLimits.maxSeconds) * 1000).rounded())) ms")
+                    .font(.system(size: 26, weight: .heavy, design: .rounded).monospacedDigit())
+                Text(capped ? "capped at 2 s" : "between repeats")
+                    .font(.caption).foregroundStyle(capped ? Butter.berry : Butter.toastSoft)
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Butter.toast.opacity(0.10)))
     }
 
     private var header: some View {

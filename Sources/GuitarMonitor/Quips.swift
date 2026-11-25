@@ -41,6 +41,14 @@ final class QuipBoard: ObservableObject {
             ["A single stroke of the knife. Barely a swirl.", "Butter, unswirled. Very flat, very honest."],
             ["Lovely swirl. Like a pat on warm pancakes.", "Gently whipped. Light and wobbly."],
             ["Whipped into oblivion. This butter is seasick.", "So much swirl your guitar has a twin and they're fighting."]],
+        "Drizzle": [
+            ["A single drizzle. Not even a puddle.", "Dry toast. Where's the echo?"],
+            ["A tasteful drizzle over the corn.", "Echoes landing right on the beat. Chef's kiss."],
+            ["Drowned in drizzle. The plate is a lake.", "More echo than guitar. Is anyone even playing?"]],
+        "Layers": [
+            ["One lonely repeat. A croissant with no layers.", "Barely a second bounce."],
+            ["Flaky layers building up nicely.", "A good laminated dough of repeats."],
+            ["Infinite layers. This pastry has no end.", "Repeats on repeats on repeats. Call a baker."]],
         "Melt": [
             ["Dry as a stick.", "Not a drop of melt. Very solid."],
             ["Puddling nicely in the cast iron.", "A warm, glossy pool of reverb."],
