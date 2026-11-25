@@ -54,6 +54,9 @@ struct ContentView: View {
                 Knob(title: "Slather", subtitle: "Volume", value: $engine.volume, range: 0...1, defaultValue: 0.7) { "\(Int($0 * 100))%" }
             }
             delayPanel
+            if let note = engine.deviceNote {
+                Text(note).font(.caption).foregroundStyle(Butter.berry).multilineTextAlignment(.center)
+            }
             Text(quips.line)
                 .font(.system(.callout, design: .rounded).italic())
                 .multilineTextAlignment(.center)

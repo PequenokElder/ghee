@@ -21,6 +21,7 @@ final class GuitarEngine: ObservableObject {
     @Published private(set) var actualBufferFrames: Int?
     @Published private(set) var level: Float = 0
     @Published private(set) var needsMicPermission = false
+    @Published private(set) var deviceNote: String?
 
     // MARK: Settings (persisted)
     @Published var deviceName: String = UserDefaults.standard.string(forKey: "deviceName") ?? "" {
@@ -82,7 +83,7 @@ final class GuitarEngine: ObservableObject {
     private var distortion = AVAudioUnitDistortion()
     private var compressor = CompressorAU.makeNode()
     private var chorus = ChorusAU.makeNode()
-    private var delay = AVAudioUnitDelay()
+    private var delay = DelayAU.makeNode()
     private var reverb = AVAudioUnitReverb()
     private var eq = AVAudioUnitEQ(numberOfBands: 3)
     private var tapInstalled = false
@@ -181,12 +182,17 @@ final class GuitarEngine: ObservableObject {
         distortion = AVAudioUnitDistortion()
         compressor = CompressorAU.makeNode()
         chorus = ChorusAU.makeNode()
-        delay = AVAudioUnitDelay()
+        delay = DelayAU.makeNode()
         reverb = AVAudioUnitReverb()
         eq = AVAudioUnitEQ(numberOfBands: 3)
 
         // Pick devices. An interface with both inputs and outputs is used for both directions.
-        let chosen = interfaces.first { $0.name == deviceName }
+        var chosen = interfaces.first { $0.name == deviceName }
+        // With "System Default", use the default output device for input too when it has
+        // inputs (an audio interface). One device means one clock: no drift or choppiness.
+        if chosen == nil, let outDev = interfaces.first(where: { $0.id == Self.defaultDevice(input: false) }) {
+            chosen = outDev
+        }
         let inputID = chosen?.id ?? Self.defaultDevice(input: true)
         var outputID = Self.defaultDevice(input: false)
         if let chosen {
@@ -196,6 +202,9 @@ final class GuitarEngine: ObservableObject {
                 Self.setUnitDevice(engine.outputNode.audioUnit, chosen.id)
             }
         }
+
+        deviceNote = inputID == outputID ? nil :
+            "Input (\(Self.deviceName(inputID))) and output (\(Self.deviceName(outputID))) are different devices, which can sound choppy. Choose your audio interface under Input."
 
         // Ask the hardware for a small I/O buffer — the biggest lever on latency.
         Self.setBufferFrames(inputID, bufferFrames)
@@ -287,13 +296,13 @@ final class GuitarEngine: ObservableObject {
         chorus.bypass = chorusMix < 0.01
         (chorus.auAudioUnit as? ChorusAU)?.amount = Float(chorusMix)
 
-        // Tempo-synced delay: time comes from BPM x note division. Repeats are rolled
-        // off a little (like a warm tape echo) so they sit behind the live signal.
-        delay.bypass = delayMix < 0.01
-        delay.delayTime = min(division.seconds(bpm: bpm), DelayLimits.maxSeconds)
-        delay.feedback = Float(delayFeedback * 85)
-        delay.lowPassCutoff = 5000
-        delay.wetDryMix = Float(delayMix * 70)
+        // Tempo-synced delay: time comes from BPM x note division. Echoes are added on
+        // top of the full-level dry signal and rolled off a little, like a warm tape echo.
+        if let d = delay.auAudioUnit as? DelayAU {
+            d.time = Float(min(division.seconds(bpm: bpm), DelayLimits.maxSeconds))
+            d.feedback = Float(delayFeedback * 0.85)
+            d.mix = Float(delayMix)
+        }
 
         reverb.bypass = reverbMix < 0.01
         reverb.wetDryMix = Float(reverbMix * 60)
